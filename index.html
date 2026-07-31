@@ -105,6 +105,20 @@
   .category-chip:hover { transform: translateY(-2px); }
   .category-chip.selected { background: linear-gradient(120deg, var(--cyan-deep), var(--teal)); color: #fff; border-color: transparent; }
 
+  .category-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+  @media (min-width: 700px) { .category-grid { grid-template-columns: repeat(4, 1fr); } }
+  @media (min-width: 1000px) { .category-grid { grid-template-columns: repeat(5, 1fr); } }
+  .category-tile { padding: 20px 14px; text-align: center; cursor: pointer; border: 1px solid var(--card-border); background: #fff; border-radius: 16px; font-family: inherit; transition: transform 0.15s ease, box-shadow 0.15s ease; }
+  .category-tile:hover { transform: translateY(-3px); box-shadow: 0 14px 26px -16px rgba(15,23,42,0.3); }
+  .category-tile .cat-icon { font-size: 28px; display: block; margin-bottom: 8px; }
+  .category-tile .cat-name { font-size: 13px; font-weight: 700; }
+  .category-tile .cat-count { font-size: 11px; color: var(--navy-soft); margin-top: 3px; }
+
+  .cat-back-btn { border: none; background: transparent; cursor: pointer; font-size: 13.5px; font-weight: 600; color: var(--navy-soft); font-family: inherit; margin-bottom: 14px; display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+  .cat-detail-header { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; flex-shrink: 0; }
+  .cat-detail-header .cat-icon-big { font-size: 26px; }
+  .cat-detail-header h2 { font-size: 20px; font-weight: 700; }
+
   .cta-banner { flex-shrink: 0; margin-bottom: 14px; padding: 13px 20px; border-radius: 14px; background: linear-gradient(120deg, rgba(11,30,61,0.94), rgba(14,60,90,0.94)); color: #fff; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
   .cta-banner span.title { font-size: 13px; font-weight: 600; }
   .cta-banner span.desc { font-size: 12px; color: rgba(255,255,255,0.65); margin-left: 8px; }
@@ -228,8 +242,22 @@
   <div class="search-row">
     <div class="search-box">
       <span>🔎</span>
-      <input id="searchInput" type="text" placeholder="Search country, city, food, visa, budget..." />
+      <input id="searchInput" type="text" placeholder="Search across all 750 prompts..." />
     </div>
+  </div>
+
+  <div id="dashboardBody" style="flex:1; min-height:0; display:flex; flex-direction:column;"></div>
+</div>
+
+<!-- CATEGORY DETAIL SCREEN -->
+<div id="screen-category" class="screen" style="flex-direction:column; max-width:1180px; margin:0 auto; padding:22px 32px;">
+  <button class="cat-back-btn" onclick="state.category='all'; goTo('explore')">← Back to categories</button>
+  <div class="cat-detail-header">
+    <span class="cat-icon-big" id="catDetailIcon"></span>
+    <h2 id="catDetailName"></h2>
+  </div>
+
+  <div class="search-row" style="margin-top:14px;">
     <select class="filter-select" id="filterDifficulty">
       <option value="all">All difficulty</option>
       <option value="Beginner">Beginner</option>
@@ -245,23 +273,16 @@
     </select>
   </div>
 
-  <div class="category-strip" id="categoryStrip"></div>
-
-  <div class="cta-banner">
-    <div><span class="title">Ready for the next level?</span><span class="desc">Unlock NavGate OS — your full AI travel operating system.</span></div>
-    <div class="cta-pill">Coming Soon</div>
-  </div>
-
   <div class="library-header">
-    <p class="section-label">Prompt Library</p>
-    <p class="results-count" id="resultsCount"></p>
+    <p class="section-label">Prompts</p>
+    <p class="results-count" id="catResultsCount"></p>
   </div>
 
   <div class="grid-scroll">
-    <div class="prompt-grid" id="promptGrid"></div>
+    <div class="prompt-grid" id="catPromptGrid"></div>
   </div>
 
-  <div class="pagination" id="pagination"></div>
+  <div class="pagination" id="catPagination"></div>
 </div>
 
 <!-- MODAL -->
@@ -1121,7 +1142,7 @@ function resolvePrompt(p){
 /* ================= STATE ================= */
 const state = {
   view:'all', category:'all', difficulty:'all', ai:'all', search:'',
-  favorites:new Set(), recent:[], page:1,
+  favorites:new Set(), recent:[], page:1, dashboardPage:1,
   persona: null, personaPhrase: 'a traveler',
   quizIndex: 0, quizScores: {}, quizHistory: [],
 };
@@ -1213,7 +1234,7 @@ function updateProfileChip(){
 function goTo(screenId){
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.getElementById('screen-' + screenId).classList.add('active');
-  if (screenId === 'explore') { updateProfileChip(); renderCategories(); renderPrompts(); }
+  if (screenId === 'explore') { updateProfileChip(); renderDashboardBody(); }
 }
 
 function getFiltered(){
@@ -1232,76 +1253,160 @@ function getFiltered(){
   });
 }
 
-function renderCategories(){
-  const strip = document.getElementById('categoryStrip');
-  strip.innerHTML = `<div class="category-chip ${state.category === 'all' ? 'selected' : ''}" onclick="selectCategory('all')">✨ All</div>` +
-    CATEGORIES.map(c => `<div class="category-chip ${state.category === c.name ? 'selected' : ''}" onclick="selectCategory('${c.name}')">${c.icon} ${c.name}</div>`).join('');
+function renderPromptCardHTML(p){
+  return `
+    <div class="glass-card prompt-card">
+      <div class="prompt-top">
+        <div class="prompt-title">${p.title}</div>
+        <button class="fav-btn ${state.favorites.has(p.id) ? 'active' : ''}" onclick="toggleFavorite('${p.id}')">★</button>
+      </div>
+      <div class="prompt-desc">${p.description}</div>
+      <div class="badge-row">
+        <span class="badge badge-diff-${p.difficulty}">${p.difficulty}</span>
+        <span class="badge badge-ai">${p.recommended_ai}</span>
+      </div>
+      <div class="tag-row">${p.tags.map(tag => `<span class="tag">#${tag}</span>`).join('')}</div>
+      <div class="card-actions">
+        <button class="btn-small copy" onclick="copyPrompt('${p.id}')">Copy Prompt</button>
+        <button class="btn-small open" onclick="openModal('${p.id}')">Open</button>
+      </div>
+    </div>
+  `;
 }
 
-function selectCategory(name){
-  state.category = state.category === name ? 'all' : name;
-  if (name === 'all') state.category = 'all';
-  state.page = 1;
-  renderCategories();
-  renderPrompts();
-}
+/* ================= DASHBOARD (Explore tab: category grid, search, favorites, recent) ================= */
+function renderDashboardBody(){
+  const wrap = document.getElementById('dashboardBody');
 
-function renderPrompts(){
+  // Favorites / Recent tabs, or an active dashboard-level search — all render as a flat,
+  // paginated list. Only "Explore" with an empty search shows the category tile grid.
+  const showingFlatList = state.view !== 'all' || (state.view === 'all' && state.search.trim() !== '');
+
+  if (!showingFlatList) {
+    const counts = {};
+    PROMPTS.forEach(p => { counts[p.category] = (counts[p.category] || 0) + 1; });
+    wrap.innerHTML = `
+      <div class="cta-banner" style="margin-bottom:16px;">
+        <div><span class="title">Ready for the next level?</span><span class="desc">Unlock NavGate OS — your full AI travel operating system.</span></div>
+        <div class="cta-pill">Coming Soon</div>
+      </div>
+      <div class="library-header">
+        <p class="section-label">Browse by Category</p>
+        <p class="results-count">${PROMPTS.length.toLocaleString()} prompts across ${CATEGORIES.length} categories</p>
+      </div>
+      <div class="grid-scroll">
+        <div class="category-grid">
+          ${CATEGORIES.map(c => `
+            <button class="category-tile" onclick="openCategory('${c.name}')">
+              <span class="cat-icon">${c.icon}</span>
+              <span class="cat-name">${c.name}</span>
+              <span class="cat-count">${counts[c.name] || 0} prompts</span>
+            </button>
+          `).join('')}
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  // Flat list view (Favorites, Recent, or a dashboard-level search across all categories)
   const all = getFiltered();
+  const totalPages = Math.max(1, Math.ceil(all.length / PAGE_SIZE));
+  state.dashboardPage = Math.min(Math.max(1, state.dashboardPage), totalPages);
+  const start = (state.dashboardPage - 1) * PAGE_SIZE;
+  const items = all.slice(start, start + PAGE_SIZE);
+
+  const emptyMsg = state.view === 'favorites' ? "No favorites saved yet — tap the star on any prompt."
+    : state.view === 'recent' ? "Nothing copied yet in this session."
+    : "No prompts match your search.";
+
+  const headerLabel = state.view === 'favorites' ? 'Favorites' : state.view === 'recent' ? 'Recent' : 'Search Results';
+
+  wrap.innerHTML = `
+    <div class="library-header">
+      <p class="section-label">${headerLabel}</p>
+      <p class="results-count">${all.length ? all.length.toLocaleString() + ' results' : ''}</p>
+    </div>
+    <div class="grid-scroll">
+      <div class="prompt-grid" id="dashboardGrid">
+        ${items.length === 0 ? `<div class="empty-state">${emptyMsg}</div>` : items.map(renderPromptCardHTML).join('')}
+      </div>
+    </div>
+    <div class="pagination" id="dashboardPagination"></div>
+  `;
+  renderPaginationInto('dashboardPagination', state.dashboardPage, totalPages, changeDashboardPage, setDashboardPage);
+}
+
+function changeDashboardPage(delta){ state.dashboardPage += delta; renderDashboardBody(); }
+function setDashboardPage(v){ const n = parseInt(v,10); if (!isNaN(n)) { state.dashboardPage = n; renderDashboardBody(); } }
+
+/* ================= CATEGORY DETAIL SCREEN ================= */
+function openCategory(name){
+  state.category = name;
+  state.difficulty = 'all';
+  state.ai = 'all';
+  state.page = 1;
+  document.getElementById('filterDifficulty').value = 'all';
+  document.getElementById('filterAI').value = 'all';
+  const cat = CATEGORIES.find(c => c.name === name);
+  document.getElementById('catDetailIcon').textContent = cat ? cat.icon : '';
+  document.getElementById('catDetailName').textContent = name;
+  goTo('category');
+  renderCategoryPrompts();
+}
+
+function renderCategoryPrompts(){
+  const all = PROMPTS.filter(p => {
+    if (p.category !== state.category) return false;
+    if (state.difficulty !== 'all' && p.difficulty !== state.difficulty) return false;
+    if (state.ai !== 'all' && p.recommended_ai !== state.ai) return false;
+    return true;
+  });
   const totalPages = Math.max(1, Math.ceil(all.length / PAGE_SIZE));
   state.page = Math.min(Math.max(1, state.page), totalPages);
   const start = (state.page - 1) * PAGE_SIZE;
   const items = all.slice(start, start + PAGE_SIZE);
 
-  document.getElementById('resultsCount').textContent = all.length ? `${all.length.toLocaleString()} results` : '';
+  document.getElementById('catResultsCount').textContent = all.length ? `${all.length.toLocaleString()} results` : '';
 
-  const grid = document.getElementById('promptGrid');
-  if (items.length === 0) {
-    const emptyMsg = state.view === 'favorites' ? "No favorites saved yet — tap the star on any prompt." : state.view === 'recent' ? "Nothing copied yet in this session." : "No prompts match your filters yet.";
-    grid.innerHTML = `<div class="empty-state">${emptyMsg}</div>`;
-  } else {
-    grid.innerHTML = items.map(p => `
-      <div class="glass-card prompt-card">
-        <div class="prompt-top">
-          <div class="prompt-title">${p.title}</div>
-          <button class="fav-btn ${state.favorites.has(p.id) ? 'active' : ''}" onclick="toggleFavorite('${p.id}')">★</button>
-        </div>
-        <div class="prompt-desc">${p.description}</div>
-        <div class="badge-row">
-          <span class="badge badge-diff-${p.difficulty}">${p.difficulty}</span>
-          <span class="badge badge-ai">${p.recommended_ai}</span>
-        </div>
-        <div class="tag-row">${p.tags.map(tag => `<span class="tag">#${tag}</span>`).join('')}</div>
-        <div class="card-actions">
-          <button class="btn-small copy" onclick="copyPrompt('${p.id}')">Copy Prompt</button>
-          <button class="btn-small open" onclick="openModal('${p.id}')">Open</button>
-        </div>
-      </div>
-    `).join('');
-  }
+  const grid = document.getElementById('catPromptGrid');
+  grid.innerHTML = items.length === 0
+    ? `<div class="empty-state">No prompts match these filters.</div>`
+    : items.map(renderPromptCardHTML).join('');
 
-  renderPagination(totalPages);
+  renderPaginationInto('catPagination', state.page, totalPages, changeCatPage, setCatPage);
 }
 
-function renderPagination(totalPages){
-  const el = document.getElementById('pagination');
+function changeCatPage(delta){ state.page += delta; renderCategoryPrompts(); }
+function setCatPage(v){ const n = parseInt(v,10); if (!isNaN(n)) { state.page = n; renderCategoryPrompts(); } }
+
+function renderPaginationInto(containerId, currentPage, totalPages, changeFn, setFn){
+  const el = document.getElementById(containerId);
   el.innerHTML = `
-    <button class="page-btn" onclick="changePage(-1)" ${state.page <= 1 ? 'disabled' : ''}>← Prev</button>
-    <span class="page-info">Page <input type="number" id="pageInput" value="${state.page}" min="1" max="${totalPages}" /> of ${totalPages}</span>
-    <button class="page-btn" onclick="changePage(1)" ${state.page >= totalPages ? 'disabled' : ''}>Next →</button>
+    <button class="page-btn" id="${containerId}-prev" ${currentPage <= 1 ? 'disabled' : ''}>← Prev</button>
+    <span class="page-info">Page <input type="number" id="${containerId}-input" value="${currentPage}" min="1" max="${totalPages}" /> of ${totalPages}</span>
+    <button class="page-btn" id="${containerId}-next" ${currentPage >= totalPages ? 'disabled' : ''}>Next →</button>
   `;
-  document.getElementById('pageInput').addEventListener('change', (e) => {
-    const v = parseInt(e.target.value, 10);
-    if (!isNaN(v)) { state.page = v; renderPrompts(); }
-  });
+  document.getElementById(containerId + '-prev').addEventListener('click', () => changeFn(-1));
+  document.getElementById(containerId + '-next').addEventListener('click', () => changeFn(1));
+  document.getElementById(containerId + '-input').addEventListener('change', (e) => setFn(e.target.value));
 }
 
-function changePage(delta){ state.page += delta; renderPrompts(); }
+/* ================= SHARED ACTIONS ================= */
+function refreshCurrentView(){
+  // Re-render whichever screen is actually on-screen right now, so a favorite toggle or a
+  // fresh "copy" (which affects Recent) is reflected immediately no matter where it happened.
+  if (document.getElementById('screen-category').classList.contains('active')) {
+    renderCategoryPrompts();
+  } else if (document.getElementById('screen-explore').classList.contains('active')) {
+    renderDashboardBody();
+  }
+}
 
 function toggleFavorite(id){
   if (state.favorites.has(id)) { state.favorites.delete(id); showToast('Removed from favorites'); }
   else { state.favorites.add(id); showToast('Added to favorites'); }
-  renderPrompts();
+  refreshCurrentView();
 }
 
 function copyPrompt(id){
@@ -1312,7 +1417,7 @@ function copyPrompt(id){
     if (!state.recent.includes(id)) state.recent.unshift(id);
     state.recent = state.recent.slice(0, 40);
     showToast('Prompt copied successfully');
-    if (state.view === 'recent') renderPrompts();
+    if (state.view === 'recent') refreshCurrentView();
   };
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(text).then(done).catch(() => fallbackCopy(text, done));
@@ -1366,13 +1471,13 @@ document.getElementById('navtabs').addEventListener('click', (e) => {
   document.querySelectorAll('.navtab').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
   state.view = btn.dataset.view;
-  state.page = 1;
-  renderPrompts();
+  state.dashboardPage = 1;
+  renderDashboardBody();
 });
 
-document.getElementById('searchInput').addEventListener('input', (e) => { state.search = e.target.value; state.page = 1; renderPrompts(); });
-document.getElementById('filterDifficulty').addEventListener('change', (e) => { state.difficulty = e.target.value; state.page = 1; renderPrompts(); });
-document.getElementById('filterAI').addEventListener('change', (e) => { state.ai = e.target.value; state.page = 1; renderPrompts(); });
+document.getElementById('searchInput').addEventListener('input', (e) => { state.search = e.target.value; state.dashboardPage = 1; renderDashboardBody(); });
+document.getElementById('filterDifficulty').addEventListener('change', (e) => { state.difficulty = e.target.value; state.page = 1; renderCategoryPrompts(); });
+document.getElementById('filterAI').addEventListener('change', (e) => { state.ai = e.target.value; state.page = 1; renderCategoryPrompts(); });
 document.getElementById('modalOverlay').addEventListener('click', (e) => { if (e.target.id === 'modalOverlay') closeModal(); });
 </script>
 </body>
